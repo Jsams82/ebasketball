@@ -1,0 +1,141 @@
+import { useState } from "react";
+import { motion } from "framer-motion";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+
+/**
+ * Tiny H2H Predictor
+ * -------------------
+ * Enter two ALL‑CAPS player tags (e.g., BLADE, LAW) and get an instant
+ * win‑probability calculation based on Elo ratings.
+ *
+ * 1. The component tries to fetch current ratings from `/api/elo/<PLAYER>`.
+ * 2. If the request fails or returns 404, it falls back to `sampleElo`.
+ * 3. Prediction formula P(A beats B) = 1 / (1 + 10 ^ ((EloB – EloA) / 400))
+ *
+ * Replace `sampleElo` or the fetch URL with your own data source.
+ */
+
+// Minimal fallback rating table so the demo still works offline.
+const sampleElo: Record<string, number> = {
+  BLADE: 1531,
+  GRAVITY: 1531,
+  LAW: 1454,
+  BABYLON: 1531,
+  RAZE: 1513,
+};
+
+async function fetchElo(player: string): Promise<number> {
+  // Normalize to upper case for consistency
+  const tag = player.toUpperCase();
+  try {
+    const res = await fetch(`/api/elo/${tag}`);
+    if (res.ok) {
+      const { elo } = (await res.json()) as { elo: number };
+      return elo;
+    }
+  } catch {
+    /* network error – fall through */
+  }
+  return sampleElo[tag] ?? 1500; // default seed rating
+}
+
+export default function H2HPredictor() {
+  const [playerA, setPlayerA] = useState("");
+  const [playerB, setPlayerB] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<
+    | {
+        eloA: number;
+        eloB: number;
+        probA: number;
+        probB: number;
+      }
+    | null
+  >(null);
+
+  const calculate = async () => {
+    if (!playerA || !playerB) return;
+    setLoading(true);
+    try {
+      const [eloA, eloB] = await Promise.all([
+        fetchElo(playerA),
+        fetchElo(playerB),
+      ]);
+      const probA = 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
+      setResult({ eloA, eloB, probA, probB: 1 - probA });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-4">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="w-full max-w-xl"
+      >
+        <Card className="shadow-xl rounded-2xl">
+          <CardHeader className="text-center">
+            <CardTitle className="text-2xl font-bold">
+              H2H Win Probability
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 p-6">
+            <Input
+              placeholder="PLAYER ONE (e.g., BLADE)"
+              value={playerA}
+              onChange={(e) => setPlayerA(e.target.value)}
+              className="uppercase"
+            />
+            <Input
+              placeholder="PLAYER TWO (e.g., LAW)"
+              value={playerB}
+              onChange={(e) => setPlayerB(e.target.value)}
+              className="uppercase"
+            />
+            <Button
+              disabled={loading || !playerA || !playerB}
+              onClick={calculate}
+              className="w-full"
+            >
+              {loading ? "Calculating..." : "Predict Winner"}
+            </Button>
+
+            {result && (
+              <div className="mt-4 space-y-2 text-center">
+                <p className="text-lg font-medium">
+                  {playerA.toUpperCase()} Elo: {result.eloA}
+                </p>
+                <p className="text-lg font-medium">
+                  {playerB.toUpperCase()} Elo: {result.eloB}
+                </p>
+                <p className="text-xl font-bold">
+                  {playerA.toUpperCase()} win probability: {" "}
+                  {(result.probA * 100).toFixed(1)}%
+                  <br />
+                  {playerB.toUpperCase()} win probability: {" "}
+                  {(result.probB * 100).toFixed(1)}%
+                </p>
+                <p className="text-2xl font-bold mt-2">
+                  Likely Winner: {" "}
+                  {result.probA > 0.5
+                    ? playerA.toUpperCase()
+                    : playerB.toUpperCase()}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+    </div>
+  );
+}
